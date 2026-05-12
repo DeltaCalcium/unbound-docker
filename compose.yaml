@@ -1,0 +1,11 @@
+services:
+  unbound:
+    image: deltacalcium/unbound:1.22.0
+    container_name: unbound
+    hostname: unbound
+    restart: unless-stopped
+    ports:
+      - 5335:53/tcp
+      - 5335:53/udp
+    volumes:
+      - ./unbound.conf:/unbound.conf
