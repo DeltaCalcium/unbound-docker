@@ -9,7 +9,7 @@ on:
 
 env:
   GHCR_IMAGE: ghcr.io/DeltaCalcium/unbound
-  DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/deltacalcium/unbound
+  DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/unbound
 
 jobs:
   build:
