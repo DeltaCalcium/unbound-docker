@@ -39,7 +39,7 @@ RUN ./configure \
     --with-libevent \
     --disable-static \
     && make -j"$(nproc)" \
-    && make DESTDIR=/out install-strip \
+    && make DESTDIR=/out install \
     && install -d /out/var/lib/unbound \
     && (./unbound-anchor -a /out/var/lib/unbound/root.key \
     || test -s /out/var/lib/unbound/root.key) \
