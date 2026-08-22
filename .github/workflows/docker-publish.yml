@@ -5,11 +5,11 @@ on:
     branches: [ "main" ]
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
-  workflow_dispatch: 
+  workflow_dispatch:
 
 env:
-  GHCR_IMAGE: ghcr.io/${{ github.repository }}
-  DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+  GHCR_IMAGE: ghcr.io/DeltaCalcium/unbound
+  DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/deltacalcium/unbound
 
 jobs:
   build:
@@ -39,7 +39,7 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -53,16 +53,19 @@ jobs:
         shell: bash
         run: |
           version="$(
-            sed -nE \
-              's/^ARG UNBOUND_VERSION=([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
-              Dockerfile
+            grep -m1 -E \
+              '^[[:space:]]*ARG[[:space:]]+UNBOUND_VERSION[[:space:]]*=' \
+              Dockerfile |
+            cut -d= -f2- |
+            tr -d '[:space:]'
           )"
 
-          if [[ -z "$version" ]]; then
-            echo "Could not read UNBOUND_VERSION from Dockerfile" >&2
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid UNBOUND_VERSION: '$version'" >&2
             exit 1
           fi
 
+          echo "Detected Unbound version: $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       # Extract metadata (tags, labels) for Docker
@@ -75,8 +78,8 @@ jobs:
             ${{ env.GHCR_IMAGE }}
             ${{ env.DOCKERHUB_IMAGE }}
           tags: |
+            type=raw,value=${{ steps.unbound.outputs.version }}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
           labels: |
             org.opencontainers.image.version=${{ steps.unbound.outputs.version }}
 
