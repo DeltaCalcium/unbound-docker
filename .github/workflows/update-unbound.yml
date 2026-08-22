@@ -1,0 +1,143 @@
+name: Update Unbound
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-unbound
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Check for a newer Unbound release
+        id: unbound
+        shell: bash
+        env:
+          RELEASE_API: https://api.github.com/repos/NLnetLabs/unbound/releases/latest
+        run: |
+          set -euo pipefail
+
+          current_version="$(
+            grep -m1 -E \
+              '^[[:space:]]*ARG[[:space:]]+UNBOUND_VERSION[[:space:]]*=' \
+              Dockerfile |
+            cut -d= -f2- |
+            tr -d '[:space:]'
+          )"
+
+          latest_tag="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 3 \
+              "$RELEASE_API" |
+            jq --raw-output '.tag_name'
+          )"
+
+          latest_version="${latest_tag#release-}"
+
+          if ! [[ "$latest_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unexpected Unbound release tag: '$latest_tag'" >&2
+            exit 1
+          fi
+
+          if ! [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unexpected current version: '$current_version'" >&2
+            exit 1
+          fi
+
+          echo "Current version: $current_version"
+          echo "Latest version:  $latest_version"
+
+          echo "current=$current_version" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest_version" >> "$GITHUB_OUTPUT"
+
+          if [[ "$current_version" == "$latest_version" ]]; then
+            echo "Unbound is already current."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          newest="$(
+            printf '%s\n%s\n' \
+              "$current_version" \
+              "$latest_version" |
+            sort --version-sort |
+            tail --lines=1
+          )"
+
+          if [[ "$newest" != "$latest_version" ]]; then
+            echo "Current version is newer than the latest upstream release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "New Unbound release found: $latest_version"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download checksum for Unbound release
+        if: steps.unbound.outputs.changed == 'true'
+        id: checksum
+        shell: bash
+        env:
+          VERSION: ${{ steps.unbound.outputs.latest }}
+        run: |
+          set -euo pipefail
+
+          checksum="$(
+            curl --fail --silent --show-error --location \
+              --retry 3 \
+              "https://nlnetlabs.nl/downloads/unbound/unbound-${VERSION}.tar.gz.sha256" |
+            awk 'NR == 1 { print $1 }'
+          )"
+
+          if [[ ! "$checksum" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Invalid SHA-256 value: $checksum" >&2
+            exit 1
+          fi
+
+          echo "sha256=${checksum,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Update Dockerfile
+        if: steps.unbound.outputs.changed == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.unbound.outputs.latest }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          sed -i -E \
+            "s/^ARG UNBOUND_VERSION=.*/ARG UNBOUND_VERSION=${VERSION}/" \
+            Dockerfile
+
+          sed -i -E \
+            "s/^ARG UNBOUND_SHA256=.*/ARG UNBOUND_SHA256=${SHA256}/" \
+            Dockerfile
+
+          git diff --check
+          git diff -- Dockerfile
+
+      - name: Create pull request
+        if: steps.unbound.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/update-unbound-${{ steps.unbound.outputs.latest }}
+          delete-branch: true
+          commit-message: "chore(deps): update Unbound to ${{ steps.unbound.outputs.latest }}"
+          title: "chore(deps): update Unbound to ${{ steps.unbound.outputs.latest }}"
+          body: |
+            Updates Unbound to `${{ steps.unbound.outputs.latest }}`.
