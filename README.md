@@ -41,9 +41,10 @@ dig @127.0.0.1 -p 5335 example.com
 ```yaml
 services:
   unbound:
-    image: ghcr.io/deltacalcium/unbound-docker:latest
+    image: ghcr.io/deltacalcium/unbound:latest
     container_name: unbound
     restart: unless-stopped
+    hostname: unbound
     ports:
       - 53:53/tcp
       - 53:53/udp
